@@ -151,6 +151,7 @@
  */
 - (void)setModificationAttributeForName:(NSString *)attributeName;
 
+
 ///---------------------------------------------------------------
 /// @name Specifying a Persistent Store for Newly Inserted Objects
 ///---------------------------------------------------------------
