@@ -236,7 +236,18 @@
  @param objectOrDynamicMapping An instance of `RKObjectMapping` or `RKDynamicMapping` defining how the mapping is to be performed.
  @return The receiver, initialized with a source object, a destination object, and a mapping.
  */
-- (id)initWithSourceObject:(id)sourceObject destinationObject:(id)destinationObject mapping:(RKMapping *)objectOrDynamicMapping;
+- (instancetype)initWithSourceObject:(id)sourceObject destinationObject:(id)destinationObject mapping:(RKMapping *)objectOrDynamicMapping;
+
+/**
+ Initializes the receiver with a source object, a destination object and an object mapping with which to perform an object mapping, and metadata information to be made available to the mapping.
+ 
+ @param sourceObject The source object to be mapped. Cannot be `nil`.
+ @param destinationObject The destination object the results are to be mapped onto. May be `nil`, in which case a new object target object will be obtained from the `dataSource`.
+ @param objectOrDynamicMapping An instance of `RKObjectMapping` or `RKDynamicMapping` defining how the mapping is to be performed.
+ @param metadataList A list of objects (usually dictionaries) which provide metadata to the operation, available via the @metadata key in mapping paths.  Each object should respond to -valueForKeyPath:, and return nil if the requested key path is not represented in the object (in which case the following object in the list will be consulted).
+ @return The receiver, initialized with a source object, a destination object, and a mapping.
+ */
+- (instancetype)initWithSourceObject:(id)sourceObject destinationObject:(id)destinationObject mapping:(RKMapping *)objectOrDynamicMapping metadataList:(NSArray *)metadataList;
 
 ///--------------------------------------
 /// @name Accessing Mapping Configuration
@@ -255,6 +266,11 @@
 @property (nonatomic, strong, readonly) id destinationObject;
 
 /**
+ Property which is `YES` when the destinationObject was provided from the data source, and `NO` when the destination object was provided externally to the operation.
+ */
+@property (nonatomic, readonly, getter=isNewDestinationObject) BOOL newDestinationObject;
+
+/**
  The mapping defining how values contained in the source object should be transformed to the destination object via key-value coding.
 
  Will either be an instance of `RKObjectMapping` or `RKDynamicMapping`.
@@ -269,9 +285,9 @@
 @property (nonatomic, strong, readonly) RKObjectMapping *objectMapping;
 
 /**
- A dictionary of metadata available for mapping in addition to the source object.
+ A list of metadata objects available for mapping in addition to the source object.
  */
-@property (nonatomic, copy) NSDictionary *metadata;
+@property (nonatomic, strong, readonly) NSArray *metadataList;
 
 ///-------------------------------------------
 /// @name Configuring Delegate and Data Source
