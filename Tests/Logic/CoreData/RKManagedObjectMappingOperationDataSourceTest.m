@@ -37,6 +37,15 @@
     [RKTestFactory tearDown];
 }
 
+- (NSEntityDescription *)entityWithNameByLoadingModel:(NSString *)entityName
+{
+  // load the same compiled Core Data model, in the same fashion as the object store, and get its copy of the specified entity description
+  NSURL *modelURL = [[RKTestFixture fixtureBundle] URLForResource:@"Data Model" withExtension:@"mom"];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] initWithContentsOfURL:modelURL];
+  NSEntityDescription *loadedEntity = [model entitiesByName][@"Human"];
+  return loadedEntity;
+}
+
 - (void)testShouldCreateNewInstancesOfUnmanagedObjects
 {
     RKManagedObjectStore *managedObjectStore = [RKTestFactory managedObjectStore];
@@ -85,6 +94,28 @@
     [mapping addPropertyMapping:[RKAttributeMapping attributeMappingFromKeyPath:@"id" toKeyPath:@"railsID"]];
     
     NSDictionary *data = @{@"id": [NSNull null]};    
+    id object = [dataSource mappingOperation:nil targetObjectForRepresentation:data withMapping:mapping inRelationship:nil];
+    assertThat(object, isNot(nilValue()));
+    assertThat(object, is(instanceOf([RKHuman class])));
+}
+
+- (void)testShouldCreateANewManagedObjectWithAForeignEntityDescription
+{
+    // easiest way for this situation to arise in real life is running application tests,
+    // with mappings that are created within the application code, but a Core Data stack
+    // that's configured by the test code, leading to two different copies of the entities
+    RKManagedObjectStore *managedObjectStore = [RKTestFactory managedObjectStore];
+    RKManagedObjectMappingOperationDataSource *dataSource = [[RKManagedObjectMappingOperationDataSource alloc] initWithManagedObjectContext:managedObjectStore.persistentStoreManagedObjectContext
+                                                                                                                                      cache:managedObjectStore.managedObjectCache];
+    NSEntityDescription *entity = [self entityWithNameByLoadingModel:@"Human"];
+  
+    assertThat(entity, is(notNilValue()));
+  
+    RKEntityMapping *mapping = [[RKEntityMapping alloc] initWithEntity:entity];
+    mapping.identificationAttributes = @[ @"railsID" ];
+    [mapping addPropertyMapping:[RKAttributeMapping attributeMappingFromKeyPath:@"id" toKeyPath:@"railsID"]];
+    
+    NSDictionary *data = [NSDictionary dictionaryWithObject:[NSNull null] forKey:@"id"];    
     id object = [dataSource mappingOperation:nil targetObjectForRepresentation:data withMapping:mapping inRelationship:nil];
     assertThat(object, isNot(nilValue()));
     assertThat(object, is(instanceOf([RKHuman class])));
@@ -1156,6 +1187,37 @@
     expect([human isDeleted]).will.equal(YES);
 }
 
+- (void)testDeletionWithForeignEntityDescription
+{
+  // easiest way for this situation to arise in real life is running application tests,
+  // with mappings that are created within the application code, but a Core Data stack
+  // that's configured by the test code, leading to two different copies of the entities
+  RKManagedObjectStore *managedObjectStore = [RKTestFactory managedObjectStore];
+  NSEntityDescription *contextEntity = [NSEntityDescription entityForName:@"Human" inManagedObjectContext:managedObjectStore.persistentStoreManagedObjectContext];
+  NSEntityDescription *loadedEntity = [self entityWithNameByLoadingModel:@"Human"];
+  
+  assertThat(contextEntity, is(notNilValue()));
+  assertThat(loadedEntity, is(notNilValue()));
+  assertThat(loadedEntity, isNot(sameInstance(contextEntity)));
+  
+  RKEntityMapping *mapping = [[RKEntityMapping alloc] initWithEntity:loadedEntity];
+  [mapping addAttributeMappingsFromArray:@[ @"name" ]];
+  mapping.deletionPredicate = [NSPredicate predicateWithFormat:@"sex = %@", @"female"];
+  
+  RKHuman *human = [NSEntityDescription insertNewObjectForEntityForName:@"Human" inManagedObjectContext:managedObjectStore.persistentStoreManagedObjectContext];
+  human.sex = @"female";
+  
+  RKManagedObjectMappingOperationDataSource *dataSource = [[RKManagedObjectMappingOperationDataSource alloc] initWithManagedObjectContext:managedObjectStore.persistentStoreManagedObjectContext
+                                                                                                                                    cache:nil];
+  NSDictionary *representation = @{ @"name": @"Whatever" };
+  RKMappingOperation *operation = [[RKMappingOperation alloc] initWithSourceObject:representation destinationObject:human mapping:mapping];
+  operation.dataSource = dataSource;
+  NSError *error = nil;
+  BOOL success = [operation performMapping:&error];
+  assertThatBool(success, is(equalToBool(YES)));
+  expect([human isDeleted]).will.equal(YES);
+}
+
 - (void)testDeletionOfTombstoneRecordsInMapperOperation
 {
     RKManagedObjectStore *managedObjectStore = [RKTestFactory managedObjectStore];
@@ -1709,6 +1771,39 @@
     
     BOOL canSkipMapping = [mappingOperationDataSource mappingOperationShouldSkipPropertyMapping:mappingOperation];
     expect(canSkipMapping).to.equal(NO);
+}
+
+- (void)testThatDynamicMappingCanSkipPropertyMapping
+{
+    RKManagedObjectStore *managedObjectStore = [RKTestFactory managedObjectStore];
+    RKFetchRequestManagedObjectCache *managedObjectCache = [RKFetchRequestManagedObjectCache new];
+    RKManagedObjectMappingOperationDataSource *mappingOperationDataSource = [[RKManagedObjectMappingOperationDataSource alloc] initWithManagedObjectContext:managedObjectStore.persistentStoreManagedObjectContext
+                                                                                                                                                      cache:managedObjectCache];
+    mappingOperationDataSource.operationQueue = [NSOperationQueue new];
+    
+    NSDictionary *representation = @{ @"name": @"Blake Watters", @"railsID": @123 };
+    RKDynamicMapping *dynamicMapping = [[RKDynamicMapping alloc] init];
+    [dynamicMapping setObjectMappingForRepresentationBlock:^RKObjectMapping *(id representation) {
+        RKEntityMapping *humanMapping = [RKEntityMapping mappingForEntityForName:@"Human" inManagedObjectStore:managedObjectStore];
+        [humanMapping addAttributeMappingsFromArray:@[ @"name", @"railsID" ]];
+        [humanMapping setModificationAttributeForName:@"name"];
+        
+        return humanMapping;
+    }];
+    
+    NSManagedObject *human = [NSEntityDescription insertNewObjectForEntityForName:@"Human" inManagedObjectContext:managedObjectStore.persistentStoreManagedObjectContext];
+    [human setValue:@"Blake Watters" forKey:@"name"];
+    RKMappingOperation *mappingOperation = [[RKMappingOperation alloc] initWithSourceObject:representation destinationObject:human mapping:dynamicMapping];
+    mappingOperation.dataSource = mappingOperationDataSource;
+    
+    NSError *error = nil;
+    // Concrete mapping is determined during mapping process
+    [mappingOperation performMapping:&error];
+    [mappingOperationDataSource.operationQueue waitUntilAllOperationsAreFinished];
+    assertThat(error, is(nilValue()));
+    
+    BOOL canSkipMapping = [mappingOperationDataSource mappingOperationShouldSkipPropertyMapping:mappingOperation];
+    expect(canSkipMapping).to.equal(YES);
 }
 
 @end
