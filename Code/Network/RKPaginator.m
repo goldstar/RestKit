@@ -19,6 +19,7 @@
 //
 
 #import "RKPaginator.h"
+#import "RKObjectManager.h"
 #import "RKMappingOperation.h"
 #import "SOCKit.h"
 #import "RKLog.h"
@@ -241,7 +242,7 @@ static NSUInteger RKPaginatorDefaultPerPage = 25;
     if (self.operationQueue) {
         [self.operationQueue addOperation:self.objectRequestOperation];
     } else {
-        [self.objectRequestOperation start];
+        [[RKObjectManager sharedManager] enqueueObjectRequestOperation:self.objectRequestOperation];
     }
 }
 
